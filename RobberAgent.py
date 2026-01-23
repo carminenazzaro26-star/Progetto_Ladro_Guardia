@@ -24,28 +24,19 @@ class RobberAgent:
         else:
             return "WAIT"  # [cite: 120]
 
-    def get_neighbors(self, griglia, pos, guardie_visibili):
-        directions = [(0, -1), (0, 1), (1, 0), (-1, 0)]
-        vicini = []
-
-        for dx, dy in directions:
+    def get_neighbors(self, grid, pos, visible_guards):
+        neighbors = []
+        # Movimenti: NORD, SUD, EST, OVEST
+        for dx, dy in [(0, -1), (0, 1), (1, 0), (-1, 0)]:
             x, y = pos[0] + dx, pos[1] + dy
 
-            # Controllo confini griglia 20x20 [cite: 29, 122]
+            # 1. Controllo confini della griglia 20x20
             if 0 <= x < 20 and 0 <= y < 20:
-                # Deve essere DIVERSO da muro per passare [cite: 34, 123]
-                if griglia[x][y] != "muro":
-
-                    # Controllo se c'è una guardia nella cella [cite: 124]
-                    occupata_da_guardia = False
-                    for gPos in guardie_visibili:
-                        if (x, y) == gPos:
-                            occupata_da_guardia = True
-                            break
-
-                    if not occupata_da_guardia:
-                        vicini.append((x, y))
-        return vicini
+                # 2. CORREZIONE: Verifica che la cella non sia un muro (1)
+                # Prima c'era grid[y][x] != "OBSTACLE"
+                if grid[y][x] != 1 and (x, y) not in visible_guards:
+                    neighbors.append((x, y))
+        return neighbors
 
     def heuristic(self, pos, guardie_visibili):
         # Distanza di Manhattan base [cite: 15, 157]

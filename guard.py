@@ -344,23 +344,16 @@ class MinimaxGuardAI:
 
         return moves
 
-    def _get_valid_moves(self, pos: Position, grid: List[List[int]],
-                         other_guard_pos: Position) -> List[Position]:
-        """Ottiene mosse valide per una singola guardia"""
-        moves = [pos]  # Può rimanere ferma
-        directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]  # Su, Destra, Giù, Sinistra
-
-        height, width = len(grid), len(grid[0])
-
-        for dx, dy in directions:
+    def _get_valid_moves(self, pos: Position, grid: List[List[int]], other_guard_pos: Position) -> List[Position]:
+        moves = [pos]  # L'azione "stai fermo" è sempre valida
+        # Direzioni: Su, Giù, Destra, Sinistra
+        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
             new_x, new_y = pos.x + dx, pos.y + dy
 
-            # Verifica bounds e muri
-            if (0 <= new_x < width and 0 <= new_y < height and
-                    grid[new_y][new_x] != CellType.WALL.value):
-
+            # --- QUESTA È LA RIGA DA SOSTITUIRE ---
+            if 0 <= new_x < 20 and 0 <= new_y < 20 and grid[new_y][new_x] != 1:
                 new_pos = Position(new_x, new_y)
-                # Non può muoversi sulla posizione dell'altra guardia
+                # Evita che le guardie si sovrappongano tra loro
                 if new_pos != other_guard_pos:
                     moves.append(new_pos)
 

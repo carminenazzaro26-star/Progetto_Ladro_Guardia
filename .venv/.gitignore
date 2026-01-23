@@ -1,0 +1,13 @@
+# created by virtualenv automatically
+# Ambienti virtuali (NON caricarli mai)
+.venv/
+venv/
+ENV/
+
+# File di configurazione di PyCharm
+.idea/
+
+# File temporanei di Python
+__pycache__/
+*.pyc
+
