@@ -6,7 +6,7 @@ class RobberAgent:
         self.pos = startPos  # Posizione corrente
         self.endPos = endPos  # Posizione obiettivo [cite: 42]
         self.vision_radius = 3  # Raggio di visione del ladro [cite: 40, 69]
-
+        self.storico_mosse = []
     def traduzioneCordinate(self, posizione_iniziale, posizione_finale):
         x, y = posizione_finale
         z, r = posizione_iniziale
@@ -42,6 +42,8 @@ class RobberAgent:
         # Distanza di Manhattan base [cite: 15, 157]
         h = abs(pos[0] - self.endPos[0]) + abs(pos[1] - self.endPos[1])
 
+        if self.storico_mosse in self.pos:
+            h += 100
         # Penalità guardie nel raggio di visione [cite: 15, 43]
         for g_pos in guardie_visibili:
             dist_g = abs(pos[0] - g_pos[0]) + abs(pos[1] - g_pos[1])
@@ -95,7 +97,10 @@ class RobberAgent:
         # 5. Prendo il primo passo e aggiorno la posizione
         prossima_pos = percorso[-1]
         mossa = self.traduzioneCordinate(self.pos, prossima_pos)
+        if len(self.storico_mosse) > 2:
+            self.storico_mosse.pop(0)
 
+        self.storico_mosse.append(mossa)
         # IMPORTANTE: self.pos deve restare una coordinata (x, y), non la stringa "NORD"
         self.pos = prossima_pos
         return mossa
