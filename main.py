@@ -26,6 +26,8 @@ def main():
     for row in range(GRID_SIZE):
         for col in range(GRID_SIZE):
             if random.random() < 0.25 and (col, row) != (0,0) and (col, row) != (19,19)and (col, row) != (10,5)and (col, row) != (5,10):
+                if  (row, col) == (0,1):
+                    continue
                 griglia[row][col] = 1
 
     cassaforte = (19, 19)
@@ -65,9 +67,17 @@ def main():
         # Disegno Griglia e Ostacoli
         for row in range(GRID_SIZE):
             for col in range(GRID_SIZE):
+                # Definiamo il rettangolo una sola volta
                 recta = pygame.Rect(col * CELL_SIZE, row * CELL_SIZE, CELL_SIZE, CELL_SIZE)
+
+                # 1. Disegniamo prima il colore di riempimento
                 if griglia[row][col] == 1:
                     pygame.draw.rect(screen, BLACK, recta)
+                else:
+                    # Opzionale: disegna uno sfondo bianco/chiaro per le celle libere
+                    pygame.draw.rect(screen, WHITE, recta)
+
+                # 2. Disegniamo il bordo grigio SOPRA, così la griglia è sempre definita
                 pygame.draw.rect(screen, GRIGIO, recta, 1)
 
         # Cassaforte (Quadrato)
