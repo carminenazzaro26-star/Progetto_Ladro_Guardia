@@ -67,7 +67,8 @@ def main():
     for row in range(GRID_SIZE):
         for col in range(GRID_SIZE):
             if random.random() < 0.25 and (col, row) not in [(0, 0), (19, 19), (10, 5), (5, 10)]:
-                griglia[row][col] = 1
+                if  (row, col)  not in [(10, 4), (4, 10), (0, 1)]:
+                 griglia[row][col] = 1
 
     ladro = RobberAgent((0, 0), (19, 19))
     guard_ai = MinimaxGuardAI(max_depth=2)
