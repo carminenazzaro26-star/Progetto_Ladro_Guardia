@@ -1,14 +1,7 @@
+import heapq
 import math
-from typing import List, Tuple, Optional, Set
+from typing import List, Tuple, Optional
 from dataclasses import dataclass
-from enum import Enum
-
-
-class CellType(Enum):
-    EMPTY = 0
-    WALL = 1
-    GUARD = 2
-    THIEF = 3
 
 
 @dataclass
@@ -49,27 +42,23 @@ class GameState:
         )
 
 
-class GuardSensor:
-    """Gestione sensori delle guardie con raggio di visibilità"""
+class GuardAgent:
+    """Agente singola guardia con A* e visione"""
 
-    def __init__(self, vision_radius: int = 4):
-        self.vision_radius = vision_radius
+    def __init__(self, guard_id, startPos):
+        self.guard_id = guard_id
+        self.pos = startPos
+        self.vision_radius = 4
+        self.last_known_thief_pos = None
+        self.last_patrol_target = None  # Ricorda l'ultimo punto visitato
 
-    def can_see_position(self, guard_pos: Position, target_pos: Position,
-                         grid: List[List[int]]) -> bool:
-        """
-        Verifica se una guardia può vedere una posizione target.
-        Usa ray-casting per verificare ostacoli tra guardia e target.
-        """
-        # Controlla se target è nel raggio
-        if guard_pos.distance_to(target_pos) > self.vision_radius:
+    def can_see_position(self, target_pos, grid):
+        """Verifica se la guardia può vedere una posizione target"""
+        if self.pos.manhattan_distance_to(target_pos) > self.vision_radius:
             return False
+        return self._line_of_sight(self.pos, target_pos, grid)
 
-        # Ray-casting con algoritmo di Bresenham
-        return self._line_of_sight(guard_pos, target_pos, grid)
-
-    def _line_of_sight(self, start: Position, end: Position,
-                       grid: List[List[int]]) -> bool:
+    def _line_of_sight(self, start, end, grid):
         """Algoritmo di Bresenham per verificare linea di vista"""
         x0, y0 = start.x, start.y
         x1, y1 = end.x, end.y
@@ -83,12 +72,9 @@ class GuardSensor:
         x, y = x0, y0
 
         while True:
-            # Se raggiungiamo il target, c'è visibilità
             if x == x1 and y == y1:
                 return True
-
-            # Se incontriamo un muro (esclusa posizione di partenza), nessuna visibilità
-            if (x != x0 or y != y0) and grid[y][x] == CellType.WALL.value:
+            if (x != x0 or y != y0) and grid[y][x] == 1:
                 return False
 
             e2 = 2 * err
@@ -99,214 +85,44 @@ class GuardSensor:
                 err += dx
                 y += sy
 
-    def get_visible_positions(self, guard_pos: Position,
-                              grid: List[List[int]]) -> Set[Position]:
-        """Restituisce tutte le posizioni visibili dalla guardia"""
-        visible = set()
-        height, width = len(grid), len(grid[0])
+    def detect_thief(self, thief_pos, grid):
+        """Rileva se il ladro è visibile"""
+        if thief_pos and self.can_see_position(thief_pos, grid):
+            self.last_known_thief_pos = thief_pos
+            return True
+        return False
 
-        # Scansiona area circolare intorno alla guardia
-        for dy in range(-self.vision_radius, self.vision_radius + 1):
-            for dx in range(-self.vision_radius, self.vision_radius + 1):
-                x, y = guard_pos.x + dx, guard_pos.y + dy
+    def get_neighbors(self, grid, pos, other_guard_pos):
+        """Restituisce le celle vicine valide"""
+        neighbors = []
+        height = len(grid)
+        width = len(grid[0]) if height > 0 else 0
 
-                # Verifica bounds
-                if 0 <= x < width and 0 <= y < height:
-                    target = Position(x, y)
-                    if self.can_see_position(guard_pos, target, grid):
-                        visible.add(target)
+        for dx, dy in [(0, -1), (0, 1), (1, 0), (-1, 0)]:
+            new_pos = Position(pos.x + dx, pos.y + dy)
 
-        return visible
+            if 0 <= new_pos.x < width and 0 <= new_pos.y < height:
+                if grid[new_pos.y][new_pos.x] != 1 and new_pos != other_guard_pos:
+                    neighbors.append(new_pos)
+        return neighbors
 
+    def heuristic(self, pos, target_pos, other_guard_pos):
+        """Euristica per A*"""
+        h = pos.manhattan_distance_to(target_pos)
 
-class GuardCoordination:
-    """Sistema di coordinamento tra le due guardie"""
+        if other_guard_pos:
+            angle_score = self._calculate_encirclement_bonus(pos, other_guard_pos, target_pos)
+            h -= angle_score * 2
 
-    def __init__(self):
-        self.sensor = GuardSensor(vision_radius=4)
+        return h
 
-    def share_information(self, state: GameState) -> Tuple[bool, Optional[Position]]:
-        """
-        Comunicazione perfetta: se almeno una guardia vede il ladro,
-        entrambe conoscono la sua posizione.
+    def _calculate_encirclement_bonus(self, my_pos, other_guard_pos, target_pos):
+        """Calcola bonus per circondare il target"""
+        v1_x = my_pos.x - target_pos.x
+        v1_y = my_pos.y - target_pos.y
+        v2_x = other_guard_pos.x - target_pos.x
+        v2_y = other_guard_pos.y - target_pos.y
 
-        Returns:
-            (thief_visible, thief_position)
-        """
-        # Verifica se guardia 1 vede il ladro
-        if state.thief_pos:
-            g1_sees = self.sensor.can_see_position(
-                state.guard1_pos, state.thief_pos, state.grid
-            )
-            g2_sees = self.sensor.can_see_position(
-                state.guard2_pos, state.thief_pos, state.grid
-            )
-
-            if g1_sees or g2_sees:
-                return True, state.thief_pos
-
-        return False, None
-
-    def calculate_intercept_positions(self, guard1_pos: Position,
-                                      guard2_pos: Position,
-                                      thief_pos: Position,
-                                      grid: List[List[int]]) -> Tuple[Position, Position]:
-        """
-        Calcola posizioni ottimali per intercettare il ladro.
-        Strategia: circondare il ladro da direzioni opposte.
-        """
-        # Vettore dal ladro al punto medio tra le guardie
-        mid_x = (guard1_pos.x + guard2_pos.x) / 2
-        mid_y = (guard1_pos.y + guard2_pos.y) / 2
-
-        # Direzione per separare le guardie
-        angle = math.atan2(guard2_pos.y - guard1_pos.y,
-                           guard2_pos.x - guard1_pos.x)
-
-        # Posizioni target per circondare il ladro
-        offset = 2
-        target1 = Position(
-            int(thief_pos.x + offset * math.cos(angle)),
-            int(thief_pos.y + offset * math.sin(angle))
-        )
-        target2 = Position(
-            int(thief_pos.x - offset * math.cos(angle)),
-            int(thief_pos.y - offset * math.sin(angle))
-        )
-
-        return target1, target2
-
-
-class MinimaxGuardAI:
-    """
-    Algoritmo Minimax con potatura Alfa-Beta per le guardie.
-    Le guardie cercano di minimizzare la distanza dal ladro (catturarlo).
-    """
-
-    def __init__(self, max_depth: int = 4):
-        self.max_depth = max_depth
-        self.coordination = GuardCoordination()
-        self.nodes_explored = 0
-        self.nodes_pruned = 0
-
-    def get_best_moves(self, state: GameState) -> Tuple[Position, Position]:
-        """
-        Calcola le mosse ottimali per entrambe le guardie.
-
-        Returns:
-            (guard1_next_pos, guard2_next_pos)
-        """
-        self.nodes_explored = 0
-        self.nodes_pruned = 0
-
-        # Aggiorna informazioni condivise
-        thief_visible, thief_pos = self.coordination.share_information(state)
-        state.thief_visible = thief_visible
-        if thief_pos:
-            state.thief_pos = thief_pos
-
-        # Esegui minimax con alfa-beta
-        _, best_move = self.minimax(
-            state,
-            depth=0,
-            alpha=-math.inf,
-            beta=math.inf,
-            maximizing=False  # False perché le guardie minimizzano
-        )
-
-        return best_move
-
-    def minimax(self, state: GameState, depth: int,
-                alpha: float, beta: float,
-                maximizing: bool) -> Tuple[float, Optional[Tuple[Position, Position]]]:
-        """
-        Algoritmo Minimax con potatura Alfa-Beta.
-
-        Args:
-            state: stato corrente del gioco
-            depth: profondità corrente
-            alpha: valore alfa per potatura
-            beta: valore beta per potatura
-            maximizing: True se turno del ladro (max), False se turno guardie (min)
-        """
-        self.nodes_explored += 1
-
-        # Condizioni terminali
-        if depth >= self.max_depth:
-            return self.evaluate_state(state), None
-
-        if self.is_terminal_state(state):
-            return self.evaluate_state(state), None
-
-        if maximizing:
-            # Turno del ladro (massimizzare distanza dalle guardie)
-            # In questo caso semplificato, assumiamo mosse casuali del ladro
-            return self.evaluate_state(state), None
-        else:
-            # Turno delle guardie (minimizzare distanza dal ladro)
-            min_eval = math.inf
-            best_move = None
-
-            # Genera tutte le possibili combinazioni di mosse delle guardie
-            for g1_move, g2_move in self.generate_guard_moves(state):
-                new_state = self.apply_guard_moves(state, g1_move, g2_move)
-
-                # Ricorsione (assumendo risposta del ladro)
-                eval_score, _ = self.minimax(
-                    new_state, depth + 1, alpha, beta, True
-                )
-
-                if eval_score < min_eval:
-                    min_eval = eval_score
-                    best_move = (g1_move, g2_move)
-
-                # Potatura Beta
-                beta = min(beta, eval_score)
-                if beta <= alpha:
-                    self.nodes_pruned += 1
-                    break  # Potatura alfa
-
-            return min_eval, best_move
-
-    def evaluate_state(self, state: GameState) -> float:
-        """
-        Funzione euristica per valutare lo stato.
-        Valori più bassi = migliore per le guardie.
-        """
-        if not state.thief_pos:
-            # Se non vediamo il ladro, valore neutro
-            return 0.0
-
-        # Distanza minima guardia-ladro
-        d1 = state.guard1_pos.distance_to(state.thief_pos)
-        d2 = state.guard2_pos.distance_to(state.thief_pos)
-        min_distance = min(d1, d2)
-
-        # Cattura = valore ottimale
-        if min_distance <= 1:
-            return -1000.0
-
-        # Fattore di coordinamento: meglio se le guardie accerchiano
-        angle_diff = self._calculate_encirclement_angle(state)
-        coordination_bonus = abs(angle_diff - math.pi) / math.pi * 10
-
-        # Score finale
-        score = min_distance - coordination_bonus
-
-        return score
-
-    def _calculate_encirclement_angle(self, state: GameState) -> float:
-        """Calcola angolo tra le due guardie rispetto al ladro"""
-        if not state.thief_pos:
-            return 0.0
-
-        # Vettori dal ladro alle guardie
-        v1_x = state.guard1_pos.x - state.thief_pos.x
-        v1_y = state.guard1_pos.y - state.thief_pos.y
-        v2_x = state.guard2_pos.x - state.thief_pos.x
-        v2_y = state.guard2_pos.y - state.thief_pos.y
-
-        # Prodotto scalare e angolo
         dot = v1_x * v2_x + v1_y * v2_y
         mag1 = math.sqrt(v1_x ** 2 + v1_y ** 2)
         mag2 = math.sqrt(v2_x ** 2 + v2_y ** 2)
@@ -315,59 +131,160 @@ class MinimaxGuardAI:
             return 0.0
 
         cos_angle = dot / (mag1 * mag2)
-        cos_angle = max(-1.0, min(1.0, cos_angle))  # Clamp
+        cos_angle = max(-1.0, min(1.0, cos_angle))
 
-        return math.acos(cos_angle)
+        return (1.0 - cos_angle) / 2.0
 
-    def is_terminal_state(self, state: GameState) -> bool:
-        """Verifica se lo stato è terminale (cattura)"""
-        if not state.thief_pos:
-            return False
+    def a_star(self, grid, target_pos, other_guard_pos):
+        """Algoritmo A* per trovare il percorso"""
+        start = self.pos
+        frontier = []
+        counter = 0  # Contatore per evitare confronti tra Position
+        heapq.heappush(frontier, (0, counter, start))
+        came_from = {start: None}
+        cost_so_far = {start: 0}
 
-        d1 = state.guard1_pos.manhattan_distance_to(state.thief_pos)
-        d2 = state.guard2_pos.manhattan_distance_to(state.thief_pos)
+        while frontier:
+            current = heapq.heappop(frontier)[2]  # Prendi il terzo elemento (Position)
 
-        return d1 <= 1 or d2 <= 1
+            if current == target_pos:
+                break
 
-    def generate_guard_moves(self, state: GameState) -> List[Tuple[Position, Position]]:
-        """Genera tutte le mosse valide per entrambe le guardie"""
-        moves = []
-        g1_moves = self._get_valid_moves(state.guard1_pos, state.grid, state.guard2_pos)
-        g2_moves = self._get_valid_moves(state.guard2_pos, state.grid, state.guard1_pos)
+            for next_node in self.get_neighbors(grid, current, other_guard_pos):
+                new_cost = cost_so_far[current] + 1
 
-        # Combinazioni di mosse
-        for g1_move in g1_moves:
-            for g2_move in g2_moves:
-                # Le guardie non possono occupare la stessa casella
-                if g1_move != g2_move:
-                    moves.append((g1_move, g2_move))
+                if next_node not in cost_so_far or new_cost < cost_so_far[next_node]:
+                    cost_so_far[next_node] = new_cost
+                    priority = new_cost + self.heuristic(next_node, target_pos, other_guard_pos)
+                    counter += 1  # Incrementa il contatore
+                    heapq.heappush(frontier, (priority, counter, next_node))
+                    came_from[next_node] = current
 
-        return moves
+        return came_from
 
-    def _get_valid_moves(self, pos: Position, grid: List[List[int]], other_guard_pos: Position) -> List[Position]:
-        moves = [pos]  # L'azione "stai fermo" è sempre valida
-        # Direzioni: Su, Giù, Destra, Sinistra
-        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
-            new_x, new_y = pos.x + dx, pos.y + dy
+    def get_patrol_target(self, grid):
+        """Genera obiettivo di pattugliamento, evitando l'ultimo visitato"""
+        strategic_points = [
+            Position(5, 5), Position(15, 5), Position(5, 15), Position(15, 15),
+            Position(10, 10),
+            Position(10, 5), Position(10, 15), Position(5, 10), Position(15, 10)
+        ]
 
-            # --- QUESTA È LA RIGA DA SOSTITUIRE ---
-            if 0 <= new_x < 20 and 0 <= new_y < 20 and grid[new_y][new_x] != 1:
-                new_pos = Position(new_x, new_y)
-                # Evita che le guardie si sovrappongano tra loro
-                if new_pos != other_guard_pos:
-                    moves.append(new_pos)
+        best_target = None
+        max_distance = 0
 
-        return moves
+        for point in strategic_points:
+            # Salta se è lo stesso punto dell'ultima volta (controlla prima se non è None)
+            if self.last_patrol_target is not None and point == self.last_patrol_target:
+                continue
 
-    def apply_guard_moves(self, state: GameState,
-                          g1_move: Position, g2_move: Position) -> GameState:
-        """Applica le mosse delle guardie e restituisce nuovo stato"""
-        new_state = state.copy()
-        new_state.guard1_pos = g1_move
-        new_state.guard2_pos = g2_move
+            if grid[point.y][point.x] != 1:
+                dist = self.pos.manhattan_distance_to(point)
+                if dist > max_distance:
+                    max_distance = dist
+                    best_target = point
 
-        # Aggiorna visibilità
-        new_state.thief_visible, new_state.thief_pos = \
-            self.coordination.share_information(new_state)
+        # Se non trova nessun punto (tutti bloccati o solo l'ultimo disponibile)
+        # allora usa l'ultimo come fallback
+        if best_target is None:
+            for point in strategic_points:
+                if grid[point.y][point.x] != 1:
+                    best_target = point
+                    break
 
-        return new_state
+        # Se ancora non trova niente, usa il centro
+        if best_target is None:
+            best_target = Position(10, 10)
+
+        # Aggiorna l'ultimo target visitato
+        self.last_patrol_target = best_target
+        return best_target
+
+    def get_next_move(self, grid, thief_pos, other_guard_pos, thief_visible):
+        """Calcola la prossima mossa della guardia"""
+        # Decidi il target
+        if thief_pos and self.detect_thief(thief_pos, grid):
+            target_pos = thief_pos
+        elif thief_visible and self.last_known_thief_pos:
+            target_pos = thief_pos if thief_pos else self.last_known_thief_pos
+        elif self.last_known_thief_pos:
+            target_pos = self.last_known_thief_pos
+        else:
+            target_pos = self.get_patrol_target(grid)
+
+        # Se sei già sul target e non vedi il ladro, nuovo target
+        if self.pos == target_pos and not thief_visible:
+            target_pos = self.get_patrol_target(grid)
+
+        # Usa A* per trovare il percorso
+        came_from = self.a_star(grid, target_pos, other_guard_pos)
+
+        # Controlla se il target è raggiungibile
+        if target_pos not in came_from:
+            return self.pos  # Resta fermo
+
+        # Ricostruisci percorso
+        path = []
+        current = target_pos
+        while current != self.pos:
+            path.append(current)
+            if came_from[current] is None:
+                break
+            current = came_from[current]
+
+        if not path:
+            return self.pos  # Resta fermo
+
+        # Ritorna la prossima posizione
+        return path[-1]
+
+
+class MinimaxGuardAI:
+    """
+    Classe principale per gestire le guardie.
+    Mantiene l'interfaccia compatibile con il main.py originale.
+    """
+
+    def __init__(self, max_depth: int = 2):
+        self.max_depth = max_depth
+        self.guard1_agent = None
+        self.guard2_agent = None
+
+    def get_best_moves(self, state: GameState) -> Tuple[Position, Position]:
+        """
+        Calcola le mosse ottimali per entrambe le guardie.
+        Questa funzione è chiamata dal main.py.
+
+        Returns:
+            (guard1_next_pos, guard2_next_pos)
+        """
+        # Inizializza gli agenti se non esistono
+        if self.guard1_agent is None:
+            self.guard1_agent = GuardAgent(1, state.guard1_pos)
+        if self.guard2_agent is None:
+            self.guard2_agent = GuardAgent(2, state.guard2_pos)
+
+        # Aggiorna le posizioni correnti
+        self.guard1_agent.pos = state.guard1_pos
+        self.guard2_agent.pos = state.guard2_pos
+
+        # Verifica chi vede il ladro
+        g1_sees = self.guard1_agent.detect_thief(state.thief_pos, state.grid) if state.thief_pos else False
+        g2_sees = self.guard2_agent.detect_thief(state.thief_pos, state.grid) if state.thief_pos else False
+        thief_visible = g1_sees or g2_sees
+
+        # Condividi informazioni tra le guardie
+        if g1_sees:
+            self.guard2_agent.last_known_thief_pos = state.thief_pos
+        if g2_sees:
+            self.guard1_agent.last_known_thief_pos = state.thief_pos
+
+        # Calcola le mosse
+        guard1_next = self.guard1_agent.get_next_move(
+            state.grid, state.thief_pos, state.guard2_pos, thief_visible
+        )
+        guard2_next = self.guard2_agent.get_next_move(
+            state.grid, state.thief_pos, state.guard1_pos, thief_visible
+        )
+
+        return guard1_next, guard2_next
