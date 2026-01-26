@@ -1,5 +1,8 @@
+import os
 import random
 import pygame
+import math
+
 from RobberAgent import RobberAgent
 from guard import MinimaxGuardAI, GameState, Position
 
@@ -15,20 +18,39 @@ GREEN = (0, 255, 0)  # Cassaforte
 BLUE = (0, 0, 255)   # Ladro
 GRIGIO = (200, 200, 200) # Bordo
 
+
+def load_images(names, fallaback_color, size):
+    if  os.path.exists(names):
+        img = pygame.image.load(names).convert_alpha()
+        return pygame.transform.scale(img, (CELL_SIZE, CELL_SIZE))
+    else:
+        surf = pygame.Surface((CELL_SIZE, CELL_SIZE), pygame.SRCALPHA)
+        pygame.draw.rect(surf, fallaback_color, size//2, size//2, size//2)
+        return surf
+
+
 def main():
     pygame.init()
     screen = pygame.display.set_mode((WINDOW_SIZE, WINDOW_SIZE))
     pygame.display.set_caption("Simulatore Ladro vs Guardie - A* & Minimax")
     clock = pygame.time.Clock()
 
+    img_ladro = pygame.image.load("img/ladro.png")
+    img_ladro = pygame.transform.scale(img_ladro, (CELL_SIZE, CELL_SIZE))
+    img_guardia = pygame.image.load("img/guardia.png")
+    img_guardia = pygame.transform.scale(img_guardia, (CELL_SIZE, CELL_SIZE))
+    img_cassaforte = pygame.image.load("img/cassaforte.png")
+    img_cassaforte = pygame.transform.scale(img_cassaforte, (CELL_SIZE, CELL_SIZE))
+
+    overlay_visione = pygame.Surface((WINDOW_SIZE, WINDOW_SIZE), pygame.SRCALPHA)
+
     # Inizializzazione griglia con ostacoli
     griglia = [[0 for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
     for row in range(GRID_SIZE):
         for col in range(GRID_SIZE):
-            if random.random() < 0.25 and (col, row) != (0,0) and (col, row) != (19,19)and (col, row) != (10,5)and (col, row) != (5,10):
-                if  (row, col) == (0,1):
-                    continue
-                griglia[row][col] = 1
+            if random.random() < 0.25 and (col, row) != (0,0) and (col, row) != (19,19):
+                if  (row, col) not in [(10,5), (5,10), (0,1)]:
+                    griglia[row][col] = 1
 
     cassaforte = (19, 19)
     ladro = RobberAgent((0, 0), cassaforte)
@@ -40,6 +62,7 @@ def main():
 
     running = True
     semaforo_ladro = True
+
 
     while running:
         for event in pygame.event.get():
@@ -63,7 +86,7 @@ def main():
 
         # --- DISEGNO ---
         screen.fill(WHITE)
-
+        overlay_visione.fill((0, 0, 0, 0))
         # Disegno Griglia e Ostacoli
         for row in range(GRID_SIZE):
             for col in range(GRID_SIZE):
@@ -81,17 +104,16 @@ def main():
                 pygame.draw.rect(screen, GRIGIO, recta, 1)
 
         # Cassaforte (Quadrato)
-        pygame.draw.rect(screen, GREEN, (cassaforte[0]*CELL_SIZE, cassaforte[1]*CELL_SIZE, CELL_SIZE, CELL_SIZE))
+        screen.blit(img_cassaforte, (cassaforte[0]*CELL_SIZE, cassaforte[1]*CELL_SIZE, CELL_SIZE, CELL_SIZE))
 
         # Ladro (Cerchio Blu)
-        centro_ladro = (ladro.pos[0] * CELL_SIZE + CELL_SIZE // 2, ladro.pos[1] * CELL_SIZE + CELL_SIZE // 2)
-        pygame.draw.circle(screen, BLUE, centro_ladro, CELL_SIZE // 3)
+        tempo = pygame.time.get_ticks() / 200
+        rimbalzo = int(math.sin(tempo) * 3)  # Effetto respiro/rimbalzo
+        screen.blit(img_ladro, (ladro.pos[0] * CELL_SIZE, ladro.pos[1] * CELL_SIZE + rimbalzo))
 
         # Guardie (Cerchi Rossi)
-        c1 = (guardia_1.x * CELL_SIZE + CELL_SIZE // 2, guardia_1.y * CELL_SIZE + CELL_SIZE // 2)
-        c2 = (guardia_2.x * CELL_SIZE + CELL_SIZE // 2, guardia_2.y * CELL_SIZE + CELL_SIZE // 2)
-        pygame.draw.circle(screen, RED, c1, CELL_SIZE // 3)
-        pygame.draw.circle(screen, RED, c2, CELL_SIZE // 3)
+        screen.blit(img_guardia, (guardia_1.x*CELL_SIZE, guardia_1.y*CELL_SIZE))
+        screen.blit(img_guardia, (guardia_2.x*CELL_SIZE, guardia_2.y*CELL_SIZE))
 
         distanza_guardia_1 = abs(ladro.pos[0] - guardia_1.x) + abs(ladro.pos[1] - guardia_1.y)
         distanza_guardia_2 = abs(ladro.pos[0] - guardia_2.x) + abs(ladro.pos[1] - guardia_2.y)
