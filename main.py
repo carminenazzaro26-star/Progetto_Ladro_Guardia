@@ -1,5 +1,7 @@
 import os
 import random
+from collections import deque
+
 import pygame
 import math
 from RobberAgent import RobberAgent
@@ -17,6 +19,31 @@ WHITE_WALL = (240, 240, 240)  # Muri bianchi accesi
 DARK_GREY = (40, 40, 40)  # Griglia sottile
 FLASHLIGHT_COLOR = (255, 255, 150, 80)  # Luce gialla calda semitrasparente
 
+def check_path_exists(griglia, start_pos, end_pos):
+    row= len(griglia)
+    col = len(griglia[0])
+    queue = deque([start_pos])
+    visited = set()
+    visited.add(start_pos)
+
+    while queue:
+        r, c = queue.popleft()
+
+        if (r, c) == end_pos:
+            return True  # Percorso trovato!
+
+        # Controlla le 4 direzioni (Nord, Sud, Est, Ovest)
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        for dr, dc in directions:
+            nr, nc = r + dr, c + dc
+
+            # Controlla confini, muri e se già visitato
+            if (0 <= nr < row and 0 <= nc < col and
+                    griglia[nr][nc] != 1 and (nr, nc) not in visited):
+                visited.add((nr, nc))
+                queue.append((nr, nc))
+
+    return False
 
 def load_safe_image(path, fallback_color):
     if os.path.exists(path):
@@ -62,13 +89,20 @@ def main():
     img_ladro = load_safe_image("img/ladro.png", (0, 0, 255))
     img_guardia = load_safe_image("img/guardia.png", (255, 0, 0))
     img_cassaforte = load_safe_image("img/cassaforte.png", (0, 255, 0))
+    map_valid = False
+    while not  map_valid:
+        griglia = [[0 for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
+        for row in range(GRID_SIZE):
+            for col in range(GRID_SIZE):
+                if random.random() < 0.25 and (col, row) not in [(0, 0), (19, 19), (10, 5), (5, 10)]:
+                    if  (row, col)  not in [(10, 4), (4, 10), (0, 1)]:
+                        griglia[row][col] = 1
 
-    griglia = [[0 for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
-    for row in range(GRID_SIZE):
-        for col in range(GRID_SIZE):
-            if random.random() < 0.25 and (col, row) not in [(0, 0), (19, 19), (10, 5), (5, 10)]:
-                if  (row, col)  not in [(10, 4), (4, 10), (0, 1)]:
-                 griglia[row][col] = 1
+        if check_path_exists(griglia, (0, 0), (19, 19)):
+            map_valid = True
+            print("Mappa generata con successo! Percorso garantito.")
+        else:
+            print("Mappa impossibile generata. Riprovo...")
 
     ladro = RobberAgent((0, 0), (19, 19))
     guard_ai = MinimaxGuardAI(max_depth=2)
