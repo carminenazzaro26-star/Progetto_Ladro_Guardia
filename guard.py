@@ -28,7 +28,7 @@ class GameState:
 
 # 3. INFINE DEFINISCI LA CLASSE AI
 class MinimaxGuardAI:
-    def __init__(self, max_depth=2, visual_range = 5):
+    def __init__(self, max_depth=2, visual_range = 4):
         self.max_depth = max_depth
         self.visual_range = visual_range
         self.moves = [(0, 1), (0, -1), (1, 0), (-1, 0), (0, 0)]
