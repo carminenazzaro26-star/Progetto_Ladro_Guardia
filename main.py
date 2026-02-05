@@ -7,7 +7,7 @@ import math
 from RobberAgent import RobberAgent
 from guard import MinimaxGuardAI, GameState, Position
 
-# --- COSTANTI ---
+#COSTANTI
 GRID_SIZE = 20
 CELL_SIZE = 35
 WINDOW_SIZE = GRID_SIZE * CELL_SIZE
@@ -55,7 +55,7 @@ def load_safe_image(path, fallback_color):
 
 
 def draw_flashlight(screen, pos, direction, length_cells=4):
-    """Disegna il fascio di luce basato sulla direzione attuale"""
+    #Disegna il fascio di luce basato sulla direzione attuale
     if direction == (0, 0): return  # Non dovrebbe succedere con la logica nuova
 
     # Centro della cella
